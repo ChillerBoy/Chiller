@@ -1,0 +1,23 @@
+#ifndef TEMP_SENSOR_IDS_H
+#define TEMP_SENSOR_IDS_H
+
+// Canonical IDs for your DS18B20 temperature sensors
+enum TempSensorID : uint8_t {
+  COND_EWT = 0,
+  ECON_SUCTION_TEMP = 1,
+  AHU_SUPPLY_TEMP = 2,
+  EVAP_LWT = 3,
+  LIQUID_POST_ECON = 4,
+  COND_LWT = 5,
+  AHU_RETURN_TEMP = 6,
+  SUCTION_TEMP = 7,
+  EVAP_EWT = 8,
+  DISCHARGE_TEMP = 9,
+  POST_FILTER_DRIER_TEMP = 10,
+  LIQUID_LINE_TEMP = 11,
+  ECON_2PHASE_TEMP = 12,
+  TWO_PHASE_TEMP = 13,
+  TEMP_SENSOR_COUNT = 14
+};
+
+#endif // TEMP_SENSOR_IDS_H
