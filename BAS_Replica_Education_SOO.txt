@@ -1,0 +1,365 @@
+BAS REPLICA & EDUCATIONAL FEATURE SPECIFICATION
+CHILLER REFRIGERANT CIRCUIT
+=================================
+
+PURPOSE
+-------
+This document defines a BAS‑replica and training‑oriented feature set for a
+VFD‑driven chiller refrigerant circuit. This specification is intentionally
+separate from the core Chiller Sequence of Operation (SOO) and focuses on
+visibility, diagnostics, education, and operator interaction rather than
+minimum operational requirements.
+
+This specification is BACnet‑agnostic and may be mapped to any supervisory
+system at a later date.
+
+
+
+1. GLOBAL NAMING CONVENTION
+--------------------------
+All exposed points shall follow a BAS‑style prefix convention:
+
+AI_   Analog Input (measured)
+AO_   Analog Output (modulating command)
+BI_   Binary Input (proof / feedback)
+BO_   Binary Output (enable / command)
+CALC_ Calculated / virtual point
+SP_   Setpoint
+LIM_  Limit (operating or safety)
+STAT_ Status / mode / timers
+ALM_  Alarm
+EVT_  Event
+TRN_  Trend
+SIM_  Simulation / training mode
+
+
+
+2. POINT LIST
+-------------
+
+2.1 ANALOG INPUTS (MEASURED)
+
+Water Side:
+- AI_EvapLWT (°F)
+- AI_EvapEWT (°F)
+- AI_EvapFlow (GPM or derived)
+
+Refrigerant Pressures:
+- AI_SuctionP (psig)
+- AI_DischargeP (psig)
+- AI_LiquidP (psig)
+- AI_EconP (psig)
+
+Refrigerant Temperatures:
+- AI_SuctionT (°F)
+- AI_DischargeT (°F)
+- AI_LiquidT (°F)
+- AI_EconSuctionT (°F)
+- AI_EconTwoPhaseT (°F)
+
+Electrical / Drive:
+- AI_VFD_Hz
+- AI_VFD_Amps
+- AI_VFD_kW
+
+
+2.2 COMMAND OUTPUTS
+
+Binary:
+- BO_CompEnable
+- BO_ResetLockouts
+- BO_AckAlarms
+
+Analog:
+- AO_CompSpeedCmd (%)
+- AO_EEV_EvapCmd (%)
+- AO_EEV_EconCmd (%)
+
+
+2.3 BINARY INPUTS (PROOFS)
+
+- BI_VFD_Run
+- BI_VFD_Fault
+- BI_VFD_Ready
+- BI_CompProof
+- BI_EEV_EvapHomed
+- BI_EEV_EconHomed
+
+
+2.4 CALCULATED / VIRTUAL POINTS
+
+Thermal:
+- CALC_EvapDT = EWT − LWT
+- CALC_LoadIdx (%)
+
+Refrigeration:
+- CALC_LiftP = Discharge − Suction
+- CALC_SH_Evap
+- CALC_SC_Liquid
+- CALC_EconSH
+
+Control Quality:
+- CALC_LWT_Error
+- CALC_LWT_ErrorAvg
+- CALC_LWT_Stable
+
+Authority:
+- CALC_SP_SourceActive
+- CALC_LastWriter
+
+
+2.5 SETPOINTS
+
+- SP_LWT (°F)
+- SP_LWT_DB (°F)
+- SP_SH_Evap (°F)
+- SP_SH_Econ (°F)
+- SP_SC_Target (°F)
+- SP_MinOnTime (s)
+- SP_MinOffTime (s)
+- SP_RestartDelay (s)
+- SP_StabilizeTime (s)
+
+
+2.6 LIMITS
+
+Pressure:
+- LIM_SuctionP_LowWarn
+- LIM_SuctionP_LowTrip
+- LIM_DischargeP_HighWarn
+- LIM_DischargeP_HighTrip
+
+Temperature:
+- LIM_DischargeT_HighWarn
+- LIM_DischargeT_HighTrip
+
+Compressor:
+- LIM_Comp_MinSpeed
+- LIM_Comp_MaxSpeed
+- LIM_Comp_RampUp
+- LIM_Comp_RampDown
+
+EEV:
+- LIM_EEV_Evap_Min / Max
+- LIM_EEV_Econ_Min / Max
+- LIM_EEV_Rate
+
+
+2.7 STATUS POINTS
+
+- STAT_Enable
+- STAT_Mode
+- STAT_ModeTimer
+- STAT_RunTimeTotal
+- STAT_StartCountDay
+- STAT_LastTripCode
+- STAT_SafetyClampActive
+- STAT_ClampReason
+- STAT_ServiceMode
+- STAT_TrainingMode
+
+
+
+3. CONTROL LOOP OBJECTS
+----------------------
+
+Each control loop shall expose BAS‑style PID parameters.
+
+Common Fields:
+- Enable
+- Mode (AUTO / MANUAL)
+- SP
+- PV
+- Output
+- P, I, D
+- Output Min / Max
+- Rate Limit
+- Saturation Flag
+
+Defined Loops:
+1. LOOP_LWT
+   PV = AI_EvapLWT
+   SP = SP_LWT
+   OUT = AO_CompSpeedCmd
+
+2. LOOP_SH_Evap
+   PV = CALC_SH_Evap
+   SP = SP_SH_Evap
+   OUT = AO_EEV_EvapCmd
+
+3. LOOP_Econ
+   PV = CALC_EconSH or CALC_SC_Liquid
+   SP = SP_SH_Econ or SP_SC_Target
+   OUT = AO_EEV_EconCmd
+
+
+
+4. OPERATING STATE MACHINE
+--------------------------
+
+STAT_Mode Enumeration:
+
+- OFF
+- IDLE_READY
+- PRECHECK
+- EEV_HOME
+- START_VFD
+- RUN_STABILIZE
+- RUN
+- UNLOAD
+- SOFT_STOP
+- LOCKOUT
+
+Each state shall expose:
+- Entry conditions
+- Exit conditions
+- Active timers
+- Visible operator status
+
+
+
+5. SAFETY VS CONTROL LAYERS
+---------------------------
+
+Controls Layer:
+- Attempts to satisfy setpoints via PID modulation
+
+Safety Clamp Layer:
+- Dynamically limits outputs without stopping operation
+- Example: compressor speed clamp due to high discharge pressure
+
+Trip Layer:
+- Forces shutdown and lockout
+- Requires manual reset
+
+Visible Indicators:
+- STAT_SafetyClampActive
+- STAT_ClampReason
+
+
+
+6. ALARMS & EVENTS
+-----------------
+
+Alarm Fields:
+- Active
+- Latched
+- Priority
+- Timestamp Active
+- Timestamp Clear
+- Cause Text
+- Recommended Action
+- Reset Required
+
+Priority 1 (Lockout):
+- High Discharge Pressure
+- Low Suction Pressure
+- VFD Fault
+- High Discharge Temperature
+- Critical Sensor Failure
+
+Priority 2 (Alarm):
+- Discharge Pressure Warning
+- Suction Pressure Warning
+- Low Superheat
+- Cannot Maintain LWT
+
+Priority 3 (Warning / Info):
+- Sensor Drift Suspected
+- Training Mode Active
+
+Events:
+- Mode Change
+- Start / Stop
+- Safety Clamp Active
+- Setpoint Change
+- Manual Override
+
+
+
+7. TREND LOGGING
+----------------
+
+Trend Controls:
+- TRN_Enable
+- TRN_SampleRate
+- TRN_Depth
+- TRN_Clear
+
+Recommended Trends:
+- Evap LWT vs Setpoint
+- Suction Pressure
+- Discharge Pressure
+- Superheat
+- Compressor Speed
+- Evap EEV Position
+- Econ EEV Position
+- Discharge Temperature
+
+
+
+8. SETPOINT AUTHORITY
+---------------------
+
+Authority Sources:
+- LOCAL
+- HMI_OPERATOR
+- REMOTE_MASTER (future)
+- SAFETY_OVERRIDE
+
+Exposed:
+- STAT_SP_SourceActive
+- STAT_SP_LastWriter
+- STAT_SP_LastWriteTime
+
+
+
+9. TRAINING MODE / FAULT INJECTION
+---------------------------------
+
+Global:
+- SIM_Enable
+- SIM_FaultSelect
+- SIM_Severity
+- SIM_AutoRecover
+
+Sensor Faults:
+- Drift
+- Stuck Value
+- Noise
+- Dropout
+
+Process Faults:
+- High Ambient Simulation
+- Low Load Simulation
+- Undercharge / Overfeed Simulation
+
+Actuator Faults:
+- EEV Stuck Open / Closed
+- EEV Slow Response
+- VFD Fault on Start
+
+Visible Simulation Deltas:
+- SIM_Delta_LWT
+- SIM_Delta_SuctionP
+- SIM_Delta_DischargeP
+
+
+
+10. OPERATOR / HMI STRUCTURE
+----------------------------
+
+Suggested Screens:
+- Overview
+- Refrigerant Circuit
+- Control Loops
+- Alarms & Events
+- Trends
+- Training Mode
+- Service / Manual
+
+This specification is intended to function as a standalone BAS‑replica and
+educational feature set and may be enabled or disabled independently of
+normal chiller operation.
+
+END OF DOCUMENT

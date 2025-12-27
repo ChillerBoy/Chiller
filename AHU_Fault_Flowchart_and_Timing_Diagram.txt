@@ -1,0 +1,119 @@
+AHU – FAULT FLOWCHART AND TIMING DIAGRAM
+BAS-STYLE REFERENCE DOCUMENT
+
+========================================
+SECTION 1 – AHU FAULT FLOWCHART
+========================================
+
+START: AHU ENABLED AND CALL FOR COOLING = TRUE
+
+→ STATE: STARTING
+  - Pump Enable ON
+  - Pump Speed Ramp 2–10 VDC over Ramp Time
+
+→ Ramp Complete?
+  - NO → Remain in STARTING
+  - YES → Proceed to PROVING
+
+→ STATE: PROVING
+  - Flow Proof Timer Active
+
+→ Flow ≥ Flow_Proof_GPM before Proof Timer expires?
+  - YES → Proceed to RUNNING
+  - NO → FAULT: FLOW PROOF FAIL
+
+FAULT: FLOW PROOF FAIL
+  - Fans OFF
+  - Pump OFF
+  - Alarm: AHU Flow Proof Fail
+  - Retry Enabled?
+      - YES → Retry Delay → STARTING
+      - NO  → LOCKOUT
+
+→ STATE: RUNNING
+  - Fans staged ON
+  - Continuous flow monitoring active
+
+→ Flow < Flow_Proof_GPM for > Loss Delay?
+  - YES → FAULT: LOSS OF FLOW
+  - NO → Continue RUNNING
+
+→ Flow ≥ Flow_Proof_GPM but < Min_Flow_GPM for > Performance Delay?
+  - YES → WARNING: LOW FLOW PERFORMANCE
+  - NO → Continue RUNNING
+
+→ Flow Signal Invalid?
+  - YES → Secondary Proof Enabled?
+      - YES → Pressure Proof Valid?
+          - YES → Continue RUNNING with Alarm
+          - NO  → FAULT: PRESSURE PROOF FAIL
+      - NO  → FAULT: FLOW METER FAULT
+
+FAULT: LOSS OF FLOW / PRESSURE PROOF FAIL / FLOW METER FAULT
+  - Fans OFF immediately
+  - Pump OFF
+  - Alarm Active
+  - Retry Logic?
+      - Retry Allowed → STARTING
+      - Retry Exceeded → LOCKOUT
+
+→ Call for Cooling = FALSE
+  → STOPPING
+  → OFF
+
+
+========================================
+SECTION 2 – AHU TIMING DIAGRAM (SEQUENCE)
+========================================
+
+Time Axis →
+
+t0:
+- Call for Cooling = TRUE
+
+t0 → t1 (STARTING):
+- Pump Enable ON
+- Pump Speed ramps from 2 VDC to 10 VDC
+- Duration: Ramp Time (default 10s)
+
+t1 → t2 (WETTING DELAY – optional):
+- Pump at full speed
+- No proving yet
+- Duration: Wetting Delay (default 0s)
+
+t2 → t3 (PROVING):
+- Flow Proof Timer active
+- Flow must exceed Flow_Proof_GPM
+- Duration: Proof Time (default 5s)
+
+t3 (RUNNING):
+- Flow proven
+- Fan 1 ON
+
+t3 + 5s:
+- Fan 2 ON
+
+t3 + 10s:
+- Fan 3 ON (if applicable)
+
+Continuous during RUNNING:
+- Monitor Flow Proof
+- Monitor Minimum Flow Performance
+- Monitor Pressure Proof (if enabled)
+
+Loss of Flow Event:
+- Flow < Flow_Proof_GPM for > Loss Delay (default 3s)
+- Immediate fan shutdown
+- Pump OFF
+- Transition to FAULT
+
+Call for Cooling Satisfied:
+- Fans OFF
+- Pump OFF
+- Enforce Min OFF Time
+- Transition to OFF
+
+
+========================================
+END OF DOCUMENT
+========================================

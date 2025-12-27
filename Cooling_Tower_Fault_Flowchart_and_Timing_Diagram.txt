@@ -1,0 +1,258 @@
+COOLING TOWER – FAULT FLOWCHART AND TIMING DIAGRAM
+BAS-STYLE REFERENCE DOCUMENT
+Revision: Draft v1.0 (control intent only)
+
+========================================================
+1) PURPOSE
+========================================================
+This document defines the fault handling logic, state transitions, and timing
+relationships for the Cooling Tower heat rejection subsystem:
+- CT Pump (condenser/tower pump)
+- Sand/Pool Filter Pump
+- Cooling Tower Fan (0–10 VDC, expressed here as 0–100% command)
+- Flow proof (from flow meter/switch)
+- CT control temperature (CT_TEMP; typically condenser leaving water temp)
+
+This is intended to pair with the Cooling_Tower_SOO document.
+
+========================================================
+2) KEY STATES (STATE MACHINE)
+========================================================
+STATE: OFF
+STATE: STARTING
+STATE: STABILIZE (makeup / basin stabilization delay)
+STATE: RUNNING
+STATE: FAULT (trip) / LOCKOUT (optional)
+
+Notes:
+- “FAULT (trip)” stops outputs and raises alarm.
+- “LOCKOUT” is an optional mode if you want retries and a hard stop after N fails.
+
+========================================================
+3) ADJUSTABLE TIMERS / THRESHOLDS (DEFAULTS)
+========================================================
+FLOW_PROVE_TIME_SEC          = 5 sec   (adjustable)
+TOWER_STABILIZE_DELAY_SEC    = 30 sec  (adjustable)
+FLOW_LOSS_DELAY_SEC          = 3 sec   (adjustable)
+LOW_TEMP_MIN_RUN_SEC         = 120 sec (adjustable)
+
+CT_DIFF_F                    = 5°F     (adjustable)
+CT_LOW_LIMIT_F               = 55°F    (adjustable)
+CT_HIGH_ALARM_F              = 95°F    (adjustable)
+CT_HIGH_RESET_DIFF_F         = 5°F     (adjustable)
+
+Optional (if enabling retry/lockout later):
+RETRY_ENABLED                = FALSE (default)
+MAX_RETRIES                  = 2
+RETRY_DELAY_SEC              = 30 sec
+LOCKOUT_MANUAL_RESET         = TRUE/FALSE (TBD)
+
+========================================================
+4) OUTPUTS BY STATE (SAFE POSITIONS)
+========================================================
+OFF:
+- CT_PUMP_CMD = OFF
+- FILTER_PUMP_CMD = OFF
+- FAN_CMD_PCT = 0%
+
+STARTING:
+- CT_PUMP_CMD = ON
+- FILTER_PUMP_CMD = OFF (until flow proven)
+- FAN_CMD_PCT = 0%
+
+STABILIZE:
+- CT_PUMP_CMD = ON
+- FILTER_PUMP_CMD = ON
+- FAN_CMD_PCT = 0% (recommended during stabilize)
+
+RUNNING:
+- CT_PUMP_CMD = ON
+- FILTER_PUMP_CMD = ON
+- FAN_CMD_PCT = Modulate (0–100%) per SOO rules
+
+FAULT / LOCKOUT:
+- FAN_CMD_PCT = 0%
+- FILTER_PUMP_CMD = OFF
+- CT_PUMP_CMD = OFF
+
+========================================================
+5) FAULT FLOWCHARTS (TEXT / ARROW STYLE)
+========================================================
+
+5.1 START PERMIT / CALL FOR COOLING
+[OFF]
+→ CALL_COOLING = TRUE?
+  - NO → Stay OFF
+  - YES → Enter STARTING
+
+5.2 STARTING: FLOW PROOF (FAIL-TO-PROVE)
+[STARTING]
+→ Command CT_PUMP_CMD = ON
+→ Start timer: FLOW_PROVE_TIME_SEC
+
+→ CT_FLOW_PROOF becomes TRUE before timer expires?
+  - YES →
+      → Command FILTER_PUMP_CMD = ON
+      → Enter STABILIZE
+  - NO →
+      → ALARM: CT_FLOW_FAIL_TO_PROVE
+      → Enter FAULT (trip) / LOCKOUT (optional)
+
+Optional retry branch (if enabled later):
+[FAULT]
+→ RETRY_ENABLED = TRUE and Retry_Count < MAX_RETRIES?
+  - YES → Wait RETRY_DELAY_SEC → Return to STARTING
+  - NO  → LOCKOUT (requires manual reset if configured)
+
+5.3 STABILIZE: MAKEUP / LEVEL SETTLE WINDOW
+[STABILIZE]
+→ Start timer: TOWER_STABILIZE_DELAY_SEC
+→ Fan held at 0% during stabilize (recommended)
+
+→ Stabilize timer complete?
+  - NO → Stay STABILIZE (continue monitoring critical safeties)
+  - YES → Enter RUNNING
+
+Critical safeties that still apply during STABILIZE:
+→ CT_FLOW_PROOF lost > FLOW_LOSS_DELAY_SEC?
+  - YES → ALARM: CT_FLOW_LOST → Enter FAULT
+  - NO  → Continue
+
+5.4 RUNNING: CONTINUOUS FLOW LOSS (TRIP)
+[RUNNING]
+→ CT_FLOW_PROOF = FALSE continuously for > FLOW_LOSS_DELAY_SEC?
+  - YES →
+      → ALARM: CT_FLOW_LOST
+      → Enter FAULT (trip)
+  - NO → Continue RUNNING
+
+5.5 RUNNING: HIGH TEMPERATURE ALARM + OVERRIDE (NON-TRIP BY DEFAULT)
+[RUNNING]
+→ CT_TEMP > CT_HIGH_ALARM_F?
+  - NO → Normal control
+  - YES →
+      → ALARM: CT_WATER_TEMP_HIGH (active)
+      → Override: FAN_CMD_PCT = 100% (max)
+      → Continue RUNNING (default philosophy)
+
+→ Clear condition met? (CT_TEMP ≤ CT_HIGH_ALARM_F - CT_HIGH_RESET_DIFF_F)
+  - YES → Clear CT_WATER_TEMP_HIGH → return to normal modulation
+  - NO  → Remain in high-temp override
+
+Optional escalation (if desired later):
+→ If CT_TEMP remains above CT_HIGH_ALARM_F for > HIGH_TEMP_PERSIST_SEC (TBD)
+  - Escalate to FAULT or “Critical Alarm” (project choice)
+
+5.6 RUNNING: LOW TEMPERATURE PROTECTION (NON-TRIP BY DEFAULT)
+[RUNNING]
+→ CT_TEMP < CT_LOW_LIMIT_F?
+  - NO → Normal control
+  - YES →
+      → Fan = 0%
+      → Start/hold LOW_TEMP_MIN_RUN timer
+      → Continue RUNNING (pumps on)
+
+→ Exit low-temp mode?
+  - LOW_TEMP_MIN_RUN timer complete AND CT_TEMP ≥ CT_LOW_LIMIT_F
+    → Return to normal control
+  - Otherwise → Stay in low-temp mode
+
+5.7 OPTIONAL: SENSOR / SIGNAL VALIDATION (RECOMMENDED)
+[STARTING / STABILIZE / RUNNING]
+→ CT_TEMP signal valid? (within plausible range and not “stuck”)
+  - YES → Continue
+  - NO →
+      → ALARM: CT_TEMP_SENSOR_FAULT
+      → Apply fallback (recommended):
+         - Fan = 0% if cold risk OR Fan = safe mid value if hot risk (TBD)
+         - Keep pumps ON or OFF depending on risk philosophy (TBD)
+      → Optionally escalate to FAULT if critical
+
+→ CT_FLOW_PROOF signal valid? (not stuck, consistent)
+  - YES → Continue
+  - NO → ALARM: CT_FLOW_SIGNAL_FAULT → optional FAULT
+
+========================================================
+6) TIMING DIAGRAMS (ASCII – CONCEPTUAL)
+========================================================
+Legend:
+- |----| indicates an active period
+- (t=) indicates time elapsed from event
+- “Trip” indicates outputs forced to safe state immediately
+
+6.1 NORMAL START TO RUNNING
+Event: CALL_COOLING becomes TRUE at t=0
+
+t=0s              5s               35s
+|-----------------|-----------------|
+CT_PUMP_CMD      |------------------------------ ON -----------------------------|
+CT_FLOW_PROOF         |---- becomes TRUE (must occur before 5s) ----|
+FILTER_PUMP_CMD                     |-------------------- ON --------------------|
+STABILIZE_TIMER                      |--------- 30s ---------|
+FAN_CMD_PCT                                                |--- modulate to SP ---|
+
+6.2 FAIL TO PROVE FLOW (START FAILURE)
+Event: CALL_COOLING TRUE, but CT_FLOW_PROOF never proves
+
+t=0s              5s
+|-----------------|
+CT_PUMP_CMD      |---------- ON ----------| Trip → OFF
+CT_FLOW_PROOF     (remains FALSE)
+FILTER_PUMP_CMD   (remains OFF)
+FAN_CMD_PCT       0% throughout
+ALARM             CT_FLOW_FAIL_TO_PROVE at t=5s
+
+6.3 FLOW LOST WHILE RUNNING (TRIP AFTER DELAY)
+Event: system running, flow drops out at t=0
+
+t=0s            3s
+|---------------|
+CT_FLOW_PROOF     FALSE throughout
+FLOW_LOSS_DELAY   |--- 3s ---|
+At t=3s: Trip → FAN=0%, FILTER_PUMP=OFF, CT_PUMP=OFF, ALARM=CT_FLOW_LOST
+
+6.4 HIGH TEMP ALARM WITH OVERRIDE (NON-TRIP DEFAULT)
+Event: CT_TEMP rises above 95°F at t=0
+
+t=0s
+|------------------------------>
+CT_WATER_TEMP_HIGH  ACTIVE until CT_TEMP ≤ (95 - reset)
+FAN_CMD_PCT         forced to 100% override while alarm active
+PUMPS               remain ON
+If/when CT_TEMP drops below reset: return to normal modulation
+
+6.5 LOW TEMP PROTECTION (MINIMUM RUN TIMER)
+Event: CT_TEMP drops below 55°F at t=0
+
+t=0s                120s
+|-------------------|
+LOW_TEMP_MODE        ACTIVE at least 120s AND until CT_TEMP ≥ 55°F
+FAN_CMD_PCT          forced to 0% during low-temp mode
+PUMPS                remain ON
+
+========================================================
+7) ALARMS LIST (DRAFT)
+========================================================
+Trips (Faults):
+- CT_FLOW_FAIL_TO_PROVE
+- CT_FLOW_LOST
+
+Non-trip Alarms (default):
+- CT_WATER_TEMP_HIGH
+Recommended future / validation:
+- CT_TEMP_SENSOR_FAULT
+- CT_FLOW_SIGNAL_FAULT
+- CT_FAN_FAULT (if VFD/fan feedback exists)
+
+========================================================
+8) RECOMMENDED “ROBUSTNESS” OPTIONS TO ENABLE LATER (NOT REQUIRED NOW)
+========================================================
+- Retry + lockout framework for start failures
+- “Temperature response proof” (tower not performing) after X minutes at high fan %
+- Performance warnings for low flow (separate from proof)
+- Min on/off timers to prevent short cycling
+- Event log + last-fault snapshot (flow, temp, fan %, state)
+
+========================================
+END OF DOCUMENT
+========================================

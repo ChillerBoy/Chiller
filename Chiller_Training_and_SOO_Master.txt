@@ -1,0 +1,183 @@
+CHILLER CONTROL, TRAINING & BAS-REPLICA MASTER SPECIFICATION
+============================================================
+
+This document consolidates:
+1) Core Sequence of Operation (SOO)
+2) Cause & Effect / Alarm Behavior
+3) Training Scenarios
+4) HMI Tab Structure & Point Visibility
+
+It is intended to be used as a direct reference for firmware, PLC, or Arduino
+state-machine implementation and to mirror a professional BAS-style control
+system with educational visibility.
+
+-----------------------------------------------------------------
+SECTION 1 – GLOBAL OPERATING PHILOSOPHY
+-----------------------------------------------------------------
+
+The chiller operates as a state-based system with layered logic:
+
+• Control Layer – Modulates outputs to satisfy setpoints
+• Safety Clamp Layer – Limits outputs without stopping operation
+• Trip Layer – Forces shutdown and/or lockout
+• Training / Simulation Layer – Injects faults and deltas for education
+
+All subsystems follow a common structure so that operator behavior and
+troubleshooting methods are consistent across the unit.
+
+-----------------------------------------------------------------
+SECTION 2 – GLOBAL STATE MACHINE
+-----------------------------------------------------------------
+
+STAT_Mode Enumeration:
+
+OFF
+IDLE_READY
+PRECHECK
+FLOW_PROVE
+EEV_HOME
+START_VFD
+RUN_STABILIZE
+RUN
+UNLOAD
+SOFT_STOP
+FAULT
+LOCKOUT
+
+Each state exposes:
+• Entry conditions
+• Exit conditions
+• Active timers
+• Visible status text
+
+-----------------------------------------------------------------
+SECTION 3 – CORE SEQUENCE OF OPERATION (SOO)
+-----------------------------------------------------------------
+
+3.1 CALL FOR COOLING
+
+Control Variable:
+• Evaporator Leaving Water Temperature (EVAP_LWT)
+
+Setpoints:
+• SP_LWT = 44°F (adjustable)
+• SP_LWT_DB = adjustable
+
+Call for Cooling = TRUE when:
+• EVAP_LWT ≥ SP_LWT + SP_LWT_DB
+
+Call for Cooling = FALSE when:
+• EVAP_LWT ≤ SP_LWT
+
+
+3.2 PRECHECK – HYDRONIC SYSTEMS
+
+Evaporator Pump:
+• Command ON
+• Start 5-second flow prove timer
+• EVAP_GPM must be ≥ EVAP_MIN_GPM
+
+Failure to prove:
+• Transition to FAULT
+• Alarm: Evap Flow Fail to Prove
+
+Runtime Monitoring:
+• If EVAP_GPM < EVAP_MIN_GPM for >3 seconds → FAULT
+
+Condenser Pump:
+• Same logic and timing as evaporator loop
+
+
+3.3 REFRIGERANT PRECHECK
+
+• All pressure sensors valid
+• Suction and discharge pressures within start limits
+• No active VFD faults
+• EEVs driven fully closed and homed
+
+Failure of any permissive:
+• Abort start
+• Transition to FAULT or LOCKOUT depending on severity
+
+
+3.4 COMPRESSOR START
+
+• VFD Run Command issued
+• Ramp from minimum speed
+• Enter RUN_STABILIZE state for fixed time
+
+
+3.5 NORMAL RUN
+
+• Capacity controlled to maintain EVAP_LWT setpoint
+• EEVs modulate for stability and efficiency
+• All safeties active
+
+
+3.6 NORMAL SHUTDOWN
+
+• VFD ramps down
+• Compressor stops
+• Pumps run post-run delay (if enabled)
+• Return to IDLE_READY
+
+-----------------------------------------------------------------
+SECTION 4 – ALARMS, TRIPS, AND CAUSE & EFFECT
+-----------------------------------------------------------------
+
+Priority 1 – Lockout:
+• High discharge pressure
+• Low suction pressure
+• VFD fault
+• Critical sensor failure
+
+Priority 2 – Alarm:
+• Cannot maintain LWT
+• Low superheat
+• Flow performance warning
+
+Priority 3 – Informational:
+• Training mode active
+• Sensor drift suspected
+
+Each alarm includes:
+• Cause text
+• Timestamp
+• Recommended action
+• Reset requirement
+
+-----------------------------------------------------------------
+SECTION 5 – TRAINING SCENARIOS
+-----------------------------------------------------------------
+
+Training Mode Enable:
+• STAT_TrainingMode = TRUE
+• SIM_Enable = TRUE
+
+TS-01 Evaporator Flow Fail to Prove
+TS-02 Evaporator Flow Loss While Running
+TS-03 High Discharge Pressure (Clamp → Trip)
+TS-04 Low Suction Pressure (Immediate Trip)
+TS-05 EEV Stuck Closed
+TS-06 Sensor Drift
+TS-07 Sensor Stuck Value
+TS-08 VFD Fault on Start
+TS-09 Excessive Amps (Clamp)
+TS-10 Cooling Tower Flow Fail to Prove
+TS-11 High Tower Water Temperature (Override)
+TS-12 Low Tower Water Temperature (Fan Lockout)
+
+-----------------------------------------------------------------
+SECTION 6 – HMI TAB STRUCTURE
+-----------------------------------------------------------------
+
+TAB 1 – OVERVIEW
+TAB 2 – EVAPORATOR SYSTEM
+TAB 3 – CONDENSER SYSTEM
+TAB 4 – REFRIGERANT CIRCUIT
+TAB 5 – COOLING TOWER
+TAB 6 – COMPRESSOR / VFD
+TAB 7 – ALARMS & EVENTS
+TAB 8 – TRAINING MODE
+
+END OF DOCUMENT
